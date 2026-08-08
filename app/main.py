@@ -6,13 +6,17 @@ FastAPI application entrypoint.
 import logging
 from contextlib import asynccontextmanager
 
-from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 from app.database import init_db
 import app.agent as agent_module
+from app.models import (
+    AgentInitRequest,
+    AgentInitResponse,
+    FeedPost,
+    FeedResponse,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,35 +66,6 @@ def health_check():
 
 
 # ---------------------------------------------------------------------------
-# Request / Response models
-# ---------------------------------------------------------------------------
-
-class Persona(BaseModel):
-    name: str
-    domain: str
-
-
-class AgentInitRequest(BaseModel):
-    persona: Persona
-
-
-class AgentInitResponse(BaseModel):
-    agentId: str
-
-
-class FeedPost(BaseModel):
-    id: str
-    createdAt: str
-    text: str
-    rationale: str
-    sources: List[str]
-
-
-class FeedResponse(BaseModel):
-    posts: List[FeedPost]
-
-
-# ---------------------------------------------------------------------------
 # POST /api/agent/init
 # ---------------------------------------------------------------------------
 
@@ -129,11 +104,11 @@ def agent_feed(
     agentId: str = Query(..., description="The agent ID returned by /api/agent/init"),
 ):
     """
-    Return all published posts for the given agent, newest-first.
+    Return all PUBLISH-decision posts for the given agent, newest-first.
 
     - 404 if the agentId is unknown — do not silently return an empty feed.
-    - 200 { "posts": [] } if the agent exists but has no posts yet.
-    - Posts table may not exist until Phase 5; handled defensively (no 500).
+    - 200 { "posts": [] } if the agent exists but has no published posts yet.
+    - Rejected decisions are never included in the public feed.
     """
     agent = agent_module.get_agent(agentId)
     if agent is None:

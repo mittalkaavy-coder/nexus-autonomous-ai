@@ -76,42 +76,31 @@ def get_agent(agent_id: str) -> dict | None:
 
 def get_feed(agent_id: str) -> list[dict]:
     """
-    Return posts for the given agent, newest-first by createdAt.
+    Return PUBLISH-decision posts for the given agent, newest-first.
 
-    Defensive against the posts table not existing yet (Phase 5):
-    catches sqlite3.OperationalError and returns [] rather than 500-ing.
     The caller is responsible for the 404 guard — call get_agent() first.
+    Empty state returns [] without error; rejected posts are excluded.
 
-    Each post dict matches the wire shape:
-        id, createdAt, text, rationale, sources (JSON list → Python list)
+    Each returned dict matches the API wire shape exactly:
+        id, createdAt (ISO 8601 UTC), text, rationale (dict), sources (list[str])
     """
     import json
-    import sqlite3
 
-    with get_connection() as conn:
-        try:
-            rows = conn.execute(
-                """
-                SELECT id, created_at AS createdAt, text, rationale, sources
-                FROM   posts
-                WHERE  agent_id = ?
-                ORDER  BY created_at DESC
-                """,
-                (agent_id,),
-            ).fetchall()
-        except sqlite3.OperationalError as exc:
-            # posts table doesn't exist yet — return empty feed, not a 500
-            logger.info(
-                "posts table not yet present (%s) — returning empty feed for '%s'.",
-                exc,
-                agent_id,
-            )
-            return []
+    from app.database import get_posts_by_agent
 
-    posts = []
-    for row in rows:
-        d = dict(row)
-        # sources is stored as a JSON array string
-        d["sources"] = json.loads(d.get("sources") or "[]")
-        posts.append(d)
-    return posts
+    all_posts = get_posts_by_agent(agent_id)
+
+    feed = []
+    for post in all_posts:
+        if post.get("decision") != "PUBLISH":
+            continue
+        feed.append(
+            {
+                "id": post["id"],
+                "createdAt": post["created_at"],   # ISO 8601 UTC
+                "text": post.get("generated_text") or "",
+                "rationale": post.get("rationale", {}),
+                "sources": post.get("sources", []),
+            }
+        )
+    return feed
