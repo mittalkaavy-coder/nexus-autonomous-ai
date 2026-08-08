@@ -221,6 +221,8 @@ def get_scheduler_status() -> Dict[str, Any]:
         return {
             "running": running,
             "agent_id": _active_agent_id,
+            "has_llm_key": bool(settings.LLM_API_KEY),
+            "llm_model": settings.LLM_MODEL,
             "interval_seconds": settings.DISCOVERY_INTERVAL_SECONDS,
             "cycle_count": _cycle_count,
             "is_cycle_executing": _is_cycle_executing,

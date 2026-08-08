@@ -13,9 +13,18 @@ load_dotenv()
 class Settings:
     """Application-wide configuration, populated from environment variables."""
 
-    # LLM credentials — no default for the key; callers must check before use
-    LLM_API_KEY: str = os.getenv("LLM_API_KEY") or os.getenv("GEMINI_API_KEY", "")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-2.0-flash")
+    @property
+    def LLM_API_KEY(self) -> str:
+        return (
+            os.getenv("LLM_API_KEY")
+            or os.getenv("GEMINI_API_KEY")
+            or os.getenv("GOOGLE_API_KEY")
+            or ""
+        )
+
+    @property
+    def LLM_MODEL(self) -> str:
+        return os.getenv("LLM_MODEL", "gemini-2.0-flash")
 
     # Storage
     DATABASE_PATH: str = os.getenv("DATABASE_PATH", "./data/nexus.db")
