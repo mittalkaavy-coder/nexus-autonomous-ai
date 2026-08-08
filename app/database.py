@@ -159,34 +159,55 @@ def insert_post(
     logger.debug("Inserted post '%s' (decision=%s) for agent '%s'.", id, decision, agent_id)
 
 
-def get_posts_by_agent(agent_id: str) -> list[dict[str, Any]]:
+def _safe_json_loads(value: Any, default: Any) -> Any:
+    """Safely parse JSON or return default if corrupted / invalid."""
+    if value is None:
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        value_str = value.strip()
+        if not value_str:
+            return default
+        try:
+            return json.loads(value_str)
+        except Exception:
+            return default
+    return default
+
+
+def get_posts_by_agent(agent_id: str, decision: Optional[str] = None) -> list[dict[str, Any]]:
     """
     Return all posts for the given agent, newest-first.
 
-    Both PUBLISH and REJECT rows are returned — callers filter by decision
-    when only published posts are needed (e.g. the public feed endpoint).
+    Args:
+        agent_id: Owning agent ID.
+        decision: Optional filter ('PUBLISH' or 'REJECT'). If None, returns all.
 
     Returns:
         List of dicts with keys matching the posts table columns.
-        sources and rationale are deserialized from JSON to Python objects.
+        sources and rationale are safely deserialized from JSON to Python objects.
     """
+    query = """
+        SELECT id, agent_id, topic, summary, created_at,
+               generated_text, sources, editorial_score, decision, rationale
+        FROM   posts
+        WHERE  agent_id = ?
+    """
+    params: list[Any] = [agent_id]
+    if decision is not None:
+        query += " AND decision = ?"
+        params.append(decision)
+    query += " ORDER BY created_at DESC"
+
     with get_connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, agent_id, topic, summary, created_at,
-                   generated_text, sources, editorial_score, decision, rationale
-            FROM   posts
-            WHERE  agent_id = ?
-            ORDER  BY created_at DESC
-            """,
-            (agent_id,),
-        ).fetchall()
+        rows = conn.execute(query, tuple(params)).fetchall()
 
     result = []
     for row in rows:
         d = dict(row)
-        d["sources"] = json.loads(d.get("sources") or "[]")
-        d["rationale"] = json.loads(d.get("rationale") or "{}")
+        d["sources"] = _safe_json_loads(d.get("sources"), [])
+        d["rationale"] = _safe_json_loads(d.get("rationale"), {})
         result.append(d)
     return result
 
@@ -219,8 +240,8 @@ def get_recent_posts(limit: int = 50, published_only: bool = False) -> list[dict
     result = []
     for row in rows:
         d = dict(row)
-        d["sources"] = json.loads(d.get("sources") or "[]")
-        d["rationale"] = json.loads(d.get("rationale") or "{}")
+        d["sources"] = _safe_json_loads(d.get("sources"), [])
+        d["rationale"] = _safe_json_loads(d.get("rationale"), {})
         result.append(d)
     return result
 

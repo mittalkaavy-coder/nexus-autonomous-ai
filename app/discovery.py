@@ -308,11 +308,13 @@ def discover_topics(use_demo_fixtures: bool = False) -> list[dict[str, Any]]:
     success_count = 0
 
     for feed in LIVE_FEEDS:
-        results = _fetch_feed(feed)
-        if results is not None:  # _fetch_feed always returns a list, even on failure
-            all_candidates.extend(results)
+        try:
+            results = _fetch_feed(feed)
             if results:
+                all_candidates.extend(results)
                 success_count += 1
+        except Exception as exc:
+            logger.warning("Feed '%s' failed with unhandled error: %s — skipping.", feed.get("name"), exc)
 
     if not all_candidates:
         logger.warning(

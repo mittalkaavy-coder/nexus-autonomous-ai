@@ -6,3 +6,4 @@ pydantic>=2.6
 requests>=2.31
 feedparser>=6.0
 google-genai>=1.0
+pytest>=8.0
