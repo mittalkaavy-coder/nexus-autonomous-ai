@@ -151,6 +151,12 @@ def agent_trigger_cycle(
     NOTE: This is purely a convenience mechanism for interactive hackathon
     demonstrations and testing; it is NOT part of the required public API contract.
     """
+    agent = agent_module.get_agent(agentId)
+    if agent is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found. Initialize the agent first via POST /api/agent/init.",
+        )
     summary = trigger_cycle_now(agent_id=agentId, use_demo_fixtures=demo)
     return {
         "status": "ok",
@@ -239,6 +245,12 @@ def get_dashboard_data(agentId: str = Query(default="nexus-001", description="Ag
     Returns agent status, persona rules, published posts, rejected topics with reasons,
     and recently seen candidate streams.
     """
+    agent = agent_module.get_agent(agentId)
+    if agent is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found. Initialize the agent first via POST /api/agent/init.",
+        )
     scheduler_status = get_scheduler_status()
     published_posts = database.get_posts_by_agent(agentId, decision="PUBLISH")
     rejected_posts = database.get_posts_by_agent(agentId, decision="REJECT")

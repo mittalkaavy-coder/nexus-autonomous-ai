@@ -61,6 +61,17 @@ def test_dashboard_alias_endpoint(client):
 
 def test_dashboard_data_endpoint_structure(client):
     """GET /api/agent/dashboard-data returns structured JSON with all required fields."""
+    init_res = client.post(
+        "/api/agent/init",
+        json={
+            "persona": {
+                "name": PERSONA.name,
+                "domain": "AI Agent Infrastructure",
+            }
+        },
+    )
+    assert init_res.status_code == 200
+
     response = client.get("/api/agent/dashboard-data?agentId=nexus-001")
     assert response.status_code == 200
     data = response.json()
@@ -76,6 +87,10 @@ def test_dashboard_data_endpoint_structure(client):
     assert data["persona"]["name"] == PERSONA.name
     assert "standing_opinions" in data["persona"]
     assert "hard_rules" in data["persona"]
+
+    # Check unknown agent returns 404
+    unknown_res = client.get("/api/agent/dashboard-data?agentId=unknown-agent-999")
+    assert unknown_res.status_code == 404
 
 
 def test_dashboard_data_after_cycle(client):

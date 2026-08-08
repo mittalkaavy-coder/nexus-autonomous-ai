@@ -139,6 +139,10 @@ class TestScheduler(unittest.TestCase):
         }
 
         client = TestClient(app)
+        client.post(
+            "/api/agent/init",
+            json={"persona": {"name": "NEXUS", "domain": "AI Agent Infrastructure"}},
+        )
         response = client.post("/api/agent/trigger-cycle?agentId=nexus-001&demo=true")
         self.assertEqual(response.status_code, 200)
         data = response.json()
