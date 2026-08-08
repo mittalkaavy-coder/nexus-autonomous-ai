@@ -1,23 +1,25 @@
 """
-Editorial scoring for NEXUS.
+Editorial evaluation and decision engine for NEXUS.
 
-Scores a single normalized topic candidate across the 5 PRD-defined factors
-using the LLM. Returns raw scores + justifications; the publish/reject
-threshold and evidence-floor rule are applied in the next phase (Phase 8).
+Stage A of the editorial pipeline (PRD §5.2, §5.3):
+1. Scores a normalized topic candidate across the 5 PRD-defined factors using the LLM.
+2. Computes the weighted composite score:
+       Relevance        20%
+       Novelty          15%
+       Technical Impact 25%
+       Evidence Quality 20%
+       Timeliness       20%
+3. Applies editorial decision rules:
+       - Hard evidence floor: Evidence Quality < evidence_floor (default 40)
+         forces REJECT regardless of composite score, producing a distinct
+         non-negotiable reason string.
+       - Composite score >= publish_threshold (default 70) -> PUBLISH
+       - Composite score < publish_threshold -> REJECT
+4. Generates a structured rationale object and a human-readable summary reason
+   for every decision (both PUBLISH and REJECT).
 
-Scoring factors and weights (PRD §5.2):
-    Relevance        20%
-    Novelty          15%
-    Technical Impact 25%
-    Evidence Quality 20%
-    Timeliness       20%
-
-Score contract:
-    score_topic(candidate) -> ScoreResult | None
-
-    Returns None if the LLM call fails after one retry, or if the response
-    cannot be parsed. None means "skip this candidate this cycle" — the
-    caller must NOT crash when it receives None.
+Stage B (Memory / duplicate check) is applied in Phase 9 only to candidates
+that pass Stage A with PUBLISH.
 """
 
 import json
@@ -46,11 +48,12 @@ WEIGHTS: dict[str, float] = {
 
 # LLM call config
 _TEMPERATURE: float = 0.2       # Low temp for consistent, structured scoring
-_MAX_OUTPUT_TOKENS: int = 2048  # 1024 was too tight for 5 verbose justifications
+_MAX_OUTPUT_TOKENS: int = 2048  # Ample space for 5 verbose factor justifications
 _RETRY_DELAY_SECONDS: float = 3.0
 
+
 # ---------------------------------------------------------------------------
-# Result type
+# Score result
 # ---------------------------------------------------------------------------
 
 
@@ -61,8 +64,13 @@ class ScoreResult:
     """
 
     __slots__ = (
-        "relevance", "novelty", "technical_impact", "evidence_quality", "timeliness",
-        "justifications", "composite_score",
+        "relevance",
+        "novelty",
+        "technical_impact",
+        "evidence_quality",
+        "timeliness",
+        "justifications",
+        "composite_score",
     )
 
     def __init__(
@@ -84,11 +92,11 @@ class ScoreResult:
 
     def _compute_composite(self) -> float:
         return round(
-            self.relevance       * WEIGHTS["relevance"]
-            + self.novelty       * WEIGHTS["novelty"]
+            self.relevance          * WEIGHTS["relevance"]
+            + self.novelty          * WEIGHTS["novelty"]
             + self.technical_impact * WEIGHTS["technical_impact"]
             + self.evidence_quality * WEIGHTS["evidence_quality"]
-            + self.timeliness    * WEIGHTS["timeliness"],
+            + self.timeliness       * WEIGHTS["timeliness"],
             2,
         )
 
@@ -112,6 +120,73 @@ class ScoreResult:
             f"technical_impact={self.technical_impact}, "
             f"evidence_quality={self.evidence_quality}, "
             f"timeliness={self.timeliness})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Editorial decision result
+# ---------------------------------------------------------------------------
+
+
+class EditorialDecision:
+    """
+    Complete editorial decision for a candidate topic.
+    Includes decision outcome ('PUBLISH' | 'REJECT'), human-readable reason,
+    full factor breakdown, and structured rationale dictionary suitable
+    for SQLite persistence and API presentation.
+    """
+
+    __slots__ = (
+        "candidate",
+        "score_result",
+        "decision",
+        "publish_threshold",
+        "evidence_floor",
+        "evidence_floor_triggered",
+        "summary_reason",
+        "rationale",
+    )
+
+    def __init__(
+        self,
+        candidate: dict[str, Any],
+        score_result: ScoreResult,
+        decision: str,
+        publish_threshold: float,
+        evidence_floor: float,
+        evidence_floor_triggered: bool,
+        summary_reason: str,
+        rationale: dict[str, Any],
+    ) -> None:
+        self.candidate = candidate
+        self.score_result = score_result
+        self.decision = decision
+        self.publish_threshold = publish_threshold
+        self.evidence_floor = evidence_floor
+        self.evidence_floor_triggered = evidence_floor_triggered
+        self.summary_reason = summary_reason
+        self.rationale = rationale
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "title": self.candidate.get("title", ""),
+            "source_url": self.candidate.get("source_url", ""),
+            "decision": self.decision,
+            "composite_score": self.score_result.composite_score,
+            "publish_threshold": self.publish_threshold,
+            "evidence_floor": self.evidence_floor,
+            "evidence_floor_triggered": self.evidence_floor_triggered,
+            "summary_reason": self.summary_reason,
+            "factor_scores": self.score_result.to_dict()["factor_scores"],
+            "rationale": self.rationale,
+        }
+
+    def __repr__(self) -> str:
+        return (
+            f"EditorialDecision(decision={self.decision!r}, "
+            f"composite={self.score_result.composite_score}, "
+            f"floor_triggered={self.evidence_floor_triggered}, "
+            f"title={self.candidate.get('title', '')[:50]!r})"
         )
 
 
@@ -246,11 +321,9 @@ def _extract_json(raw: str) -> dict[str, Any]:
 
     Raises ValueError if parsing fails — caller handles it.
     """
-    # Strip markdown fences
     text = re.sub(r"```(?:json)?\s*", "", raw).strip()
     text = re.sub(r"```\s*$", "", text).strip()
 
-    # Find the first {...} block in case there is surrounding prose
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
         raise ValueError(f"No JSON object found in LLM response: {text[:200]!r}")
@@ -301,12 +374,145 @@ def _validate_and_clamp(data: dict[str, Any]) -> ScoreResult:
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Rationale and reason builder
+# ---------------------------------------------------------------------------
+
+def _build_decision_rationale(
+    candidate: dict[str, Any],
+    score_result: ScoreResult,
+    threshold: float,
+    evidence_floor: float,
+) -> tuple[str, bool, str, dict[str, Any]]:
+    """
+    Analyze scores and compute:
+      (decision, floor_triggered, summary_reason, structured_rationale)
+
+    Enforces:
+      1. Hard floor rule: Evidence Quality < evidence_floor -> REJECT
+         Must produce a distinct, clear reason identifying the evidence floor breach.
+      2. Composite >= threshold -> PUBLISH with detailed strengths breakdown.
+      3. Composite < threshold -> REJECT with detailed drag factors breakdown.
+    """
+    comp = score_result.composite_score
+    eq = score_result.evidence_quality
+    floor_triggered = eq < evidence_floor
+
+    factor_map = {
+        "relevance": score_result.relevance,
+        "novelty": score_result.novelty,
+        "technical_impact": score_result.technical_impact,
+        "evidence_quality": score_result.evidence_quality,
+        "timeliness": score_result.timeliness,
+    }
+
+    if floor_triggered:
+        decision = "REJECT"
+        eq_just = score_result.justifications.get("evidence_quality", "").strip()
+        if comp >= threshold:
+            summary_reason = (
+                f"Rejected: evidence quality ({eq:.0f}/100) is below the minimum floor ({evidence_floor:.0f}/100) "
+                f"despite a qualifying composite score of {comp:.1f}/100 (threshold: {threshold:.0f}/100). "
+                f"Evidence rationale: {eq_just or 'Unverifiable claims or secondary source without primary technical artifact.'}"
+            )
+        else:
+            summary_reason = (
+                f"Rejected: evidence quality ({eq:.0f}/100) is below the minimum floor ({evidence_floor:.0f}/100) "
+                f"and composite score ({comp:.1f}/100) failed threshold ({threshold:.0f}/100). "
+                f"Evidence rationale: {eq_just or 'Insufficient verifiable evidence.'}"
+            )
+
+        # Dragging factors
+        low_factors = [
+            f"{k.replace('_', ' ').title()} ({v:.0f}/100, weight {int(WEIGHTS[k]*100)}%)"
+            for k, v in factor_map.items()
+            if v < 60
+        ]
+
+        rationale: dict[str, Any] = {
+            "decision": "REJECT",
+            "composite_score": comp,
+            "publish_threshold": threshold,
+            "evidence_floor": evidence_floor,
+            "evidence_floor_triggered": True,
+            "summary_reason": summary_reason,
+            "factor_scores": factor_map,
+            "primary_violation": (
+                f"Evidence Quality ({eq:.0f}/100) failed mandatory floor ({evidence_floor:.0f}/100)"
+            ),
+            "drag_factors": low_factors,
+            "justifications": score_result.justifications,
+        }
+        return decision, True, summary_reason, rationale
+
+    elif comp >= threshold:
+        decision = "PUBLISH"
+        # Identify top strengths
+        strengths = [
+            f"{k.replace('_', ' ').title()} ({v:.0f}/100, weight {int(WEIGHTS[k]*100)}%)"
+            for k, v in sorted(factor_map.items(), key=lambda item: item[1], reverse=True)
+            if v >= 70
+        ]
+        key_strength_text = ", ".join(strengths[:3]) if strengths else "well-rounded factor scores"
+        ti_just = score_result.justifications.get("technical_impact", "").strip()
+
+        summary_reason = (
+            f"Published: composite score {comp:.1f}/100 exceeds threshold {threshold:.0f}/100 "
+            f"(Evidence Quality: {eq:.0f}/100 >= floor {evidence_floor:.0f}/100). "
+            f"Key strengths: {key_strength_text}. {ti_just}"
+        )
+
+        rationale = {
+            "decision": "PUBLISH",
+            "composite_score": comp,
+            "publish_threshold": threshold,
+            "evidence_floor": evidence_floor,
+            "evidence_floor_triggered": False,
+            "summary_reason": summary_reason,
+            "factor_scores": factor_map,
+            "key_strengths": strengths,
+            "justifications": score_result.justifications,
+        }
+        return decision, False, summary_reason, rationale
+
+    else:
+        decision = "REJECT"
+        # Find which factors dragged it below threshold
+        drag_items = sorted(
+            [(k, v, WEIGHTS[k]) for k, v in factor_map.items() if v < 70],
+            key=lambda x: x[1],
+        )
+        drag_desc = [
+            f"{k.replace('_', ' ').title()} ({v:.0f}/100, weight {int(w*100)}%)"
+            for k, v, w in drag_items
+        ]
+        drag_str = ", ".join(drag_desc) if drag_desc else "composite score fell short"
+
+        summary_reason = (
+            f"Rejected: composite score {comp:.1f}/100 fell short of publish threshold ({threshold:.0f}/100). "
+            f"Dragged down by: {drag_str}."
+        )
+
+        rationale = {
+            "decision": "REJECT",
+            "composite_score": comp,
+            "publish_threshold": threshold,
+            "evidence_floor": evidence_floor,
+            "evidence_floor_triggered": False,
+            "summary_reason": summary_reason,
+            "factor_scores": factor_map,
+            "drag_factors": drag_desc,
+            "justifications": score_result.justifications,
+        }
+        return decision, False, summary_reason, rationale
+
+
+# ---------------------------------------------------------------------------
+# Public Scoring and Decision API
 # ---------------------------------------------------------------------------
 
 def score_topic(candidate: dict[str, Any]) -> Optional[ScoreResult]:
     """
-    Score a normalized topic candidate using the LLM.
+    Score a normalized topic candidate using the LLM across the 5 PRD factors.
 
     Performs one retry on transient failure (timeout, network error, 429).
     Returns None — not raising — if both attempts fail or the response
@@ -342,13 +548,15 @@ def score_topic(candidate: dict[str, Any]) -> Optional[ScoreResult]:
                 "[scoring] '%s' -> composite=%.1f (R=%.0f N=%.0f TI=%.0f EQ=%.0f T=%.0f)",
                 title,
                 result.composite_score,
-                result.relevance, result.novelty,
-                result.technical_impact, result.evidence_quality, result.timeliness,
+                result.relevance,
+                result.novelty,
+                result.technical_impact,
+                result.evidence_quality,
+                result.timeliness,
             )
             return result
 
         except (ValueError, KeyError) as exc:
-            # Parsing / validation error — retrying won't help
             logger.warning(
                 "[scoring] Parse error on attempt %d/2 for '%s': %s — skipping.",
                 attempt, title, exc,
@@ -356,7 +564,6 @@ def score_topic(candidate: dict[str, Any]) -> Optional[ScoreResult]:
             return None
 
         except Exception as exc:
-            # Network/API error — retry once with a brief delay
             logger.warning(
                 "[scoring] API error on attempt %d/2 for '%s': %s",
                 attempt, title, exc,
@@ -370,4 +577,97 @@ def score_topic(candidate: dict[str, Any]) -> Optional[ScoreResult]:
                 )
                 return None
 
-    return None  # unreachable, but satisfies the type checker
+    return None
+
+
+def make_editorial_decision(
+    candidate: dict[str, Any],
+    score_result: ScoreResult,
+    threshold: Optional[float] = None,
+    evidence_floor: Optional[float] = None,
+) -> EditorialDecision:
+    """
+    Apply editorial judgment to an already-scored candidate.
+
+    Args:
+        candidate: Normalized topic candidate dict.
+        score_result: ScoreResult produced by score_topic().
+        threshold: Minimum composite score required to publish.
+                   Defaults to settings.PUBLISH_THRESHOLD (70.0).
+        evidence_floor: Minimum Evidence Quality score required.
+                   Defaults to settings.EVIDENCE_FLOOR (40.0).
+
+    Returns:
+        EditorialDecision with decision ('PUBLISH' | 'REJECT'), human reason,
+        and structured rationale.
+    """
+    thresh = float(threshold if threshold is not None else settings.PUBLISH_THRESHOLD)
+    floor = float(evidence_floor if evidence_floor is not None else settings.EVIDENCE_FLOOR)
+
+    decision, floor_triggered, summary_reason, rationale = _build_decision_rationale(
+        candidate=candidate,
+        score_result=score_result,
+        threshold=thresh,
+        evidence_floor=floor,
+    )
+
+    logger.info(
+        "[decision] '%s' -> %s (composite=%.1f, EQ=%.0f, floor_triggered=%s)",
+        candidate.get("title", "?")[:50],
+        decision,
+        score_result.composite_score,
+        score_result.evidence_quality,
+        floor_triggered,
+    )
+
+    return EditorialDecision(
+        candidate=candidate,
+        score_result=score_result,
+        decision=decision,
+        publish_threshold=thresh,
+        evidence_floor=floor,
+        evidence_floor_triggered=floor_triggered,
+        summary_reason=summary_reason,
+        rationale=rationale,
+    )
+
+
+def decide_topic(
+    candidate: dict[str, Any],
+    threshold: Optional[float] = None,
+    evidence_floor: Optional[float] = None,
+) -> Optional[EditorialDecision]:
+    """
+    End-to-end evaluation for a single candidate: score then decide.
+    Returns None if scoring fails (skip candidate this cycle).
+    """
+    score_result = score_topic(candidate)
+    if score_result is None:
+        return None
+
+    return make_editorial_decision(
+        candidate=candidate,
+        score_result=score_result,
+        threshold=threshold,
+        evidence_floor=evidence_floor,
+    )
+
+
+def evaluate_batch(
+    candidates: list[dict[str, Any]],
+    threshold: Optional[float] = None,
+    evidence_floor: Optional[float] = None,
+) -> list[EditorialDecision]:
+    """
+    Evaluate a batch of candidate topics through scoring and decision.
+    Skipped/failed items (score_topic returning None) are omitted from the output.
+
+    Note: Persistence to SQLite database happens in Phase 10.
+    # TODO: Phase 10 - Persist decisions (insert_post, insert_topic_seen)
+    """
+    decisions: list[EditorialDecision] = []
+    for c in candidates:
+        dec = decide_topic(c, threshold=threshold, evidence_floor=evidence_floor)
+        if dec is not None:
+            decisions.append(dec)
+    return decisions
