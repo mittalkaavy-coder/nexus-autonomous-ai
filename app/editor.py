@@ -50,6 +50,12 @@ WEIGHTS: dict[str, float] = {
 _TEMPERATURE: float = 0.2       # Low temp for consistent, structured scoring
 _MAX_OUTPUT_TOKENS: int = 2048  # Ample space for 5 verbose factor justifications
 _RETRY_DELAY_SECONDS: float = 3.0
+_last_error: str = ""
+
+
+def get_last_scoring_error() -> str:
+    """Return the last encountered LLM scoring error string."""
+    return _last_error
 
 
 # ---------------------------------------------------------------------------
@@ -580,6 +586,8 @@ def score_topic(candidate: dict[str, Any]) -> Optional[ScoreResult]:
             return None
 
         except Exception as exc:
+            global _last_error
+            _last_error = f"{type(exc).__name__}: {exc}"
             logger.warning(
                 "[scoring] API error on attempt %d/2 for '%s': %s",
                 attempt, title, exc,

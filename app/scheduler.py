@@ -218,11 +218,14 @@ def get_scheduler_status() -> Dict[str, Any]:
             if job and job.next_run_time:
                 next_run = job.next_run_time.isoformat()
 
+        from app.editor import get_last_scoring_error
+
         return {
             "running": running,
             "agent_id": _active_agent_id,
             "has_llm_key": bool(settings.LLM_API_KEY),
             "llm_model": settings.LLM_MODEL,
+            "last_llm_error": get_last_scoring_error(),
             "interval_seconds": settings.DISCOVERY_INTERVAL_SECONDS,
             "cycle_count": _cycle_count,
             "is_cycle_executing": _is_cycle_executing,
