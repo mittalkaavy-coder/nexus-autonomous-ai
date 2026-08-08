@@ -18,6 +18,12 @@ from app.models import (
     FeedPost,
     FeedResponse,
 )
+from app.scheduler import (
+    get_scheduler_status,
+    start_scheduler,
+    stop_scheduler,
+    trigger_cycle_now,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,13 +32,14 @@ logging.basicConfig(
 
 
 # ---------------------------------------------------------------------------
-# Lifespan — runs init_db() once on startup before accepting requests
+# Lifespan — runs init_db() on startup and stops background scheduler on shutdown
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     yield
+    stop_scheduler()
 
 
 # ---------------------------------------------------------------------------
@@ -82,11 +89,13 @@ def agent_init(body: AgentInitRequest):
     Initialize NEXUS with a persona config and persist it to the database.
 
     Idempotent — if the agent has already been initialized, returns the
-    existing agentId with 200. No duplicate rows, no double-scheduling.
+    existing agentId with 200. Starts the background autonomous scheduler
+    on first call; ignores subsequent start attempts without double-scheduling.
 
     Malformed request bodies are rejected automatically by Pydantic with 422.
     """
     agent_id = agent_module.initialize_agent(body.persona.model_dump())
+    start_scheduler(agent_id)
     return AgentInitResponse(agentId=agent_id)
 
 
@@ -121,6 +130,49 @@ def agent_feed(
     raw_posts = agent_module.get_feed(agentId)
     posts = [FeedPost(**p) for p in raw_posts]
     return FeedResponse(posts=posts)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/agent/trigger-cycle — DEBUG ONLY, for demo pacing and manual testing
+# ---------------------------------------------------------------------------
+
+@app.post(
+    "/api/agent/trigger-cycle",
+    tags=["debug"],
+    summary="Trigger an immediate editorial cycle (Debug / Demo convenience)",
+)
+def agent_trigger_cycle(
+    agentId: str = Query(default="nexus-001", description="Agent ID to run cycle for"),
+    demo: bool = Query(default=False, description="If true, use demo fixtures instead of live RSS"),
+):
+    """
+    Manually force an immediate editorial cycle right now for demo pacing.
+
+    NOTE: This is purely a convenience mechanism for interactive hackathon
+    demonstrations and testing; it is NOT part of the required public API contract.
+    """
+    summary = trigger_cycle_now(agent_id=agentId, use_demo_fixtures=demo)
+    return {
+        "status": "ok",
+        "message": "Editorial cycle triggered and completed.",
+        "summary": summary,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/agent/scheduler-status — DEBUG ONLY
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/api/agent/scheduler-status",
+    tags=["debug"],
+    summary="Fetch autonomous scheduler telemetry and health status",
+)
+def agent_scheduler_status():
+    """
+    Return the current state of the autonomous background scheduler.
+    """
+    return get_scheduler_status()
 
 
 # ---------------------------------------------------------------------------

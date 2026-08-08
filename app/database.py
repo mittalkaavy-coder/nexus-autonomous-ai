@@ -191,6 +191,40 @@ def get_posts_by_agent(agent_id: str) -> list[dict[str, Any]]:
     return result
 
 
+def get_recent_posts(limit: int = 50, published_only: bool = False) -> list[dict[str, Any]]:
+    """
+    Return recent posts across all agents, newest-first.
+
+    Args:
+        limit: Maximum number of posts to return.
+        published_only: If True, filters only rows where decision == 'PUBLISH'.
+
+    Returns:
+        List of dicts with deserialized sources and rationale.
+    """
+    query = """
+        SELECT id, agent_id, topic, summary, created_at,
+               generated_text, sources, editorial_score, decision, rationale
+        FROM   posts
+    """
+    params: list[Any] = []
+    if published_only:
+        query += " WHERE decision = 'PUBLISH'"
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+
+    with get_connection() as conn:
+        rows = conn.execute(query, tuple(params)).fetchall()
+
+    result = []
+    for row in rows:
+        d = dict(row)
+        d["sources"] = json.loads(d.get("sources") or "[]")
+        d["rationale"] = json.loads(d.get("rationale") or "{}")
+        result.append(d)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # topics_seen — data-access functions
 # ---------------------------------------------------------------------------

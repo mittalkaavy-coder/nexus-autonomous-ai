@@ -9,7 +9,8 @@ __pycache__/
 .venv/
 
 # Database file
-data/nexus.db
+data/*.db
+*.db
 
 # macOS metadata
 .DS_Store

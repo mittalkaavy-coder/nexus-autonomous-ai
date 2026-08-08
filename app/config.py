@@ -29,6 +29,10 @@ class Settings:
     PUBLISH_THRESHOLD: float = float(os.getenv("PUBLISH_THRESHOLD", "70.0"))
     EVIDENCE_FLOOR: float = float(os.getenv("EVIDENCE_FLOOR", "40.0"))
 
+    # Memory and Duplicate Detection (PRD §5.3)
+    SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.70"))
+    MEMORY_WINDOW_SIZE: int = int(os.getenv("MEMORY_WINDOW_SIZE", "50"))
+
     def __repr__(self) -> str:  # pragma: no cover
         key_preview = f"{self.LLM_API_KEY[:6]}…" if self.LLM_API_KEY else "<not set>"
         return (
@@ -38,7 +42,9 @@ class Settings:
             f"DATABASE_PATH={self.DATABASE_PATH!r}, "
             f"DISCOVERY_INTERVAL_SECONDS={self.DISCOVERY_INTERVAL_SECONDS}, "
             f"PUBLISH_THRESHOLD={self.PUBLISH_THRESHOLD}, "
-            f"EVIDENCE_FLOOR={self.EVIDENCE_FLOOR}"
+            f"EVIDENCE_FLOOR={self.EVIDENCE_FLOOR}, "
+            f"SIMILARITY_THRESHOLD={self.SIMILARITY_THRESHOLD}, "
+            f"MEMORY_WINDOW_SIZE={self.MEMORY_WINDOW_SIZE}"
             f")"
         )
 
