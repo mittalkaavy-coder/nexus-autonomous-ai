@@ -1,0 +1,15 @@
+# Secrets — never commit
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# Database file
+data/nexus.db
+
+# macOS metadata
+.DS_Store
