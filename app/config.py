@@ -24,7 +24,10 @@ class Settings:
 
     @property
     def LLM_MODEL(self) -> str:
-        return os.getenv("LLM_MODEL", "gemini-2.0-flash")
+        raw = os.getenv("LLM_MODEL", "gemini-2.0-flash").strip()
+        if not raw or "2.5" in raw:
+            return "gemini-2.0-flash"
+        return raw
 
     # Storage
     DATABASE_PATH: str = os.getenv("DATABASE_PATH", "./data/nexus.db")

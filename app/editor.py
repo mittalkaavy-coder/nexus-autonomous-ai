@@ -297,15 +297,31 @@ def _call_llm(prompt: str) -> str:
     from google import genai  # type: ignore
 
     client = genai.Client(api_key=settings.LLM_API_KEY)
-    response = client.models.generate_content(
-        model=settings.LLM_MODEL,
-        contents=prompt,
-        config=genai.types.GenerateContentConfig(
-            temperature=_TEMPERATURE,
-            max_output_tokens=_MAX_OUTPUT_TOKENS,
-        ),
-    )
-    return response.text
+    models_to_try = [settings.LLM_MODEL, "gemini-2.0-flash", "gemini-1.5-flash"]
+    seen = set()
+    deduped_models = [m for m in models_to_try if not (m in seen or seen.add(m))]
+
+    last_exc = None
+    for model_name in deduped_models:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=genai.types.GenerateContentConfig(
+                    temperature=_TEMPERATURE,
+                    max_output_tokens=_MAX_OUTPUT_TOKENS,
+                ),
+            )
+            return response.text
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                "[editor] LLM call with model '%s' failed: %s — trying next fallback if available",
+                model_name, exc,
+            )
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("No LLM models available to execute prompt")
 
 
 # ---------------------------------------------------------------------------
