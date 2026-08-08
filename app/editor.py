@@ -294,21 +294,56 @@ Return ONLY a JSON object — no preamble, no explanation, no markdown fences. E
 # LLM client helper
 # ---------------------------------------------------------------------------
 
+_discovered_working_model: Optional[str] = None
+
+
+def _get_working_models(client: Any) -> list[str]:
+    global _discovered_working_model
+    if _discovered_working_model:
+        return [_discovered_working_model]
+
+    candidates = [
+        settings.LLM_MODEL,
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-exp",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-pro-latest",
+        "gemini-1.5-pro",
+        "gemini-pro",
+    ]
+    try:
+        listed = []
+        for m in client.models.list():
+            m_name = getattr(m, "name", "")
+            if m_name.startswith("models/"):
+                m_name = m_name[7:]
+            if "gemini" in m_name.lower() and "embed" not in m_name.lower():
+                listed.append(m_name)
+        if listed:
+            logger.info("[editor] Discovered available models from API: %s", listed)
+            candidates = listed + candidates
+    except Exception as exc:
+        logger.warning("[editor] client.models.list() query failed: %s", exc)
+
+    seen = set()
+    return [m for m in candidates if m and not (m in seen or seen.add(m))]
+
+
 def _call_llm(prompt: str) -> str:
     """
     Call the configured Gemini model with the given prompt.
     Returns the raw text response string.
     Raises on any API/network error — let the caller handle retries.
     """
+    global _discovered_working_model
     from google import genai  # type: ignore
 
     client = genai.Client(api_key=settings.LLM_API_KEY)
-    models_to_try = [settings.LLM_MODEL, "gemini-2.0-flash", "gemini-1.5-flash"]
-    seen = set()
-    deduped_models = [m for m in models_to_try if not (m in seen or seen.add(m))]
+    models_to_try = _get_working_models(client)
 
     last_exc = None
-    for model_name in deduped_models:
+    for model_name in models_to_try:
         try:
             response = client.models.generate_content(
                 model=model_name,
@@ -318,6 +353,7 @@ def _call_llm(prompt: str) -> str:
                     max_output_tokens=_MAX_OUTPUT_TOKENS,
                 ),
             )
+            _discovered_working_model = model_name
             return response.text
         except Exception as exc:
             last_exc = exc
