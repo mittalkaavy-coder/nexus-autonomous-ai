@@ -1,13 +1,41 @@
 """
-Loads environment variables via python-dotenv — no business logic yet.
+Loads environment variables via python-dotenv and exposes a single
+Settings object that all other modules import.
 """
 
 import os
 from dotenv import load_dotenv
 
+# Load .env from the project root (one level above this file)
 load_dotenv()
 
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "")
-DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/nexus.db")
-DISCOVERY_INTERVAL_SECONDS = int(os.getenv("DISCOVERY_INTERVAL_SECONDS", "90"))
+
+class Settings:
+    """Application-wide configuration, populated from environment variables."""
+
+    # LLM credentials — no default for the key; callers must check before use
+    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-2.0-flash")
+
+    # Storage
+    DATABASE_PATH: str = os.getenv("DATABASE_PATH", "./data/nexus.db")
+
+    # Scheduler
+    DISCOVERY_INTERVAL_SECONDS: int = int(
+        os.getenv("DISCOVERY_INTERVAL_SECONDS", "90")
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        key_preview = f"{self.LLM_API_KEY[:6]}…" if self.LLM_API_KEY else "<not set>"
+        return (
+            f"Settings("
+            f"LLM_MODEL={self.LLM_MODEL!r}, "
+            f"LLM_API_KEY={key_preview}, "
+            f"DATABASE_PATH={self.DATABASE_PATH!r}, "
+            f"DISCOVERY_INTERVAL_SECONDS={self.DISCOVERY_INTERVAL_SECONDS}"
+            f")"
+        )
+
+
+# Singleton — import this everywhere
+settings = Settings()
