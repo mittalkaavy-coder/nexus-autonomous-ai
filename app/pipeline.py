@@ -75,7 +75,9 @@ def run_pipeline_cycle(
     if candidates_override is not None:
         candidates = candidates_override
     else:
-        candidates = discover_topics(use_demo_fixtures=use_demo_fixtures)
+        all_candidates = discover_topics(use_demo_fixtures=use_demo_fixtures)
+        # Cap candidate batch to top 8 freshest items per cycle to stay comfortably within LLM rate limits
+        candidates = all_candidates[:8] if len(all_candidates) > 8 else all_candidates
 
     logger.info(
         "[pipeline] Starting editorial cycle for agent '%s' with %d candidate(s)",
