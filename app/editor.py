@@ -569,7 +569,16 @@ def score_topic(candidate: dict[str, Any]) -> Optional[ScoreResult]:
                 attempt, title, exc,
             )
             if attempt < 2:
-                time.sleep(_RETRY_DELAY_SECONDS)
+                exc_str = str(exc)
+                if "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str:
+                    match = re.search(r"retry in ([0-9]+(?:\.[0-9]+)?)s", exc_str, re.IGNORECASE)
+                    if not match:
+                        match = re.search(r"retryDelay'?:\s*'([0-9]+)s", exc_str, re.IGNORECASE)
+                    delay = float(match.group(1)) + 2.0 if match else 20.0
+                    logger.info("[scoring] Rate limited (429). Waiting %.1fs before retry...", delay)
+                    time.sleep(delay)
+                else:
+                    time.sleep(_RETRY_DELAY_SECONDS)
             else:
                 logger.warning(
                     "[scoring] Both attempts failed for '%s' — skipping this cycle.",
