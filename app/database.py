@@ -28,6 +28,7 @@ def get_connection():
     Yield a sqlite3 connection with row_factory set to sqlite3.Row.
     Commits on clean exit, rolls back on exception, always closes.
     """
+    Path(settings.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(settings.DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     try:
