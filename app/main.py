@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
 import app.agent as agent_module
+from app.discovery import discover_topics
 from app.models import (
     AgentInitRequest,
     AgentInitResponse,
@@ -120,3 +121,35 @@ def agent_feed(
     raw_posts = agent_module.get_feed(agentId)
     posts = [FeedPost(**p) for p in raw_posts]
     return FeedResponse(posts=posts)
+
+
+# ---------------------------------------------------------------------------
+# GET /debug/discover  — DEBUG ONLY, not part of the frozen API contract
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/debug/discover",
+    tags=["debug"],
+    summary="Run one discovery cycle and return raw normalized candidates",
+)
+def debug_discover(
+    demo: bool = Query(
+        default=False,
+        description="If true, return demo fixtures instead of hitting live feeds.",
+    ),
+):
+    """
+    Trigger one discovery cycle right now and return the raw candidate list.
+
+    This endpoint exists to prove live sources work during development.
+    It does NOT score, deduplicate, or persist anything.
+    It is NOT part of the frozen public API and MUST NOT be called by
+    autonomous pipeline logic.
+    """
+    candidates = discover_topics(use_demo_fixtures=demo)
+    return {
+        "source": "demo_fixtures" if demo else "live_rss",
+        "count": len(candidates),
+        "candidates": candidates,
+    }
+
