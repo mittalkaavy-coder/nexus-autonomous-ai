@@ -59,3 +59,59 @@ def initialize_agent(persona: dict) -> str:
             now_iso,
         )
         return agent_id
+
+
+def get_agent(agent_id: str) -> dict | None:
+    """
+    Return the agent row as a dict, or None if no agent with that ID exists.
+    Used by the feed endpoint to distinguish 404 from empty-feed.
+    """
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT agent_id, status FROM agent WHERE agent_id = ?",
+            (agent_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_feed(agent_id: str) -> list[dict]:
+    """
+    Return posts for the given agent, newest-first by createdAt.
+
+    Defensive against the posts table not existing yet (Phase 5):
+    catches sqlite3.OperationalError and returns [] rather than 500-ing.
+    The caller is responsible for the 404 guard — call get_agent() first.
+
+    Each post dict matches the wire shape:
+        id, createdAt, text, rationale, sources (JSON list → Python list)
+    """
+    import json
+    import sqlite3
+
+    with get_connection() as conn:
+        try:
+            rows = conn.execute(
+                """
+                SELECT id, created_at AS createdAt, text, rationale, sources
+                FROM   posts
+                WHERE  agent_id = ?
+                ORDER  BY created_at DESC
+                """,
+                (agent_id,),
+            ).fetchall()
+        except sqlite3.OperationalError as exc:
+            # posts table doesn't exist yet — return empty feed, not a 500
+            logger.info(
+                "posts table not yet present (%s) — returning empty feed for '%s'.",
+                exc,
+                agent_id,
+            )
+            return []
+
+    posts = []
+    for row in rows:
+        d = dict(row)
+        # sources is stored as a JSON array string
+        d["sources"] = json.loads(d.get("sources") or "[]")
+        posts.append(d)
+    return posts

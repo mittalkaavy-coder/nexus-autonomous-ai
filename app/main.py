@@ -6,7 +6,8 @@ FastAPI application entrypoint.
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from typing import List, Optional
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -77,6 +78,18 @@ class AgentInitResponse(BaseModel):
     agentId: str
 
 
+class FeedPost(BaseModel):
+    id: str
+    createdAt: str
+    text: str
+    rationale: str
+    sources: List[str]
+
+
+class FeedResponse(BaseModel):
+    posts: List[FeedPost]
+
+
 # ---------------------------------------------------------------------------
 # POST /api/agent/init
 # ---------------------------------------------------------------------------
@@ -99,3 +112,36 @@ def agent_init(body: AgentInitRequest):
     """
     agent_id = agent_module.initialize_agent(body.persona.model_dump())
     return AgentInitResponse(agentId=agent_id)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/agent/feed
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/api/agent/feed",
+    response_model=FeedResponse,
+    status_code=200,
+    tags=["agent"],
+    summary="Fetch the agent's published post feed",
+)
+def agent_feed(
+    agentId: str = Query(..., description="The agent ID returned by /api/agent/init"),
+):
+    """
+    Return all published posts for the given agent, newest-first.
+
+    - 404 if the agentId is unknown — do not silently return an empty feed.
+    - 200 { "posts": [] } if the agent exists but has no posts yet.
+    - Posts table may not exist until Phase 5; handled defensively (no 500).
+    """
+    agent = agent_module.get_agent(agentId)
+    if agent is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found. Initialize the agent first via POST /api/agent/init.",
+        )
+
+    raw_posts = agent_module.get_feed(agentId)
+    posts = [FeedPost(**p) for p in raw_posts]
+    return FeedResponse(posts=posts)
