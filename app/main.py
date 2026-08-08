@@ -205,3 +205,59 @@ def debug_discover(
         "candidates": candidates,
     }
 
+
+# ---------------------------------------------------------------------------
+# Demo Dashboard & Telemetry Data (Read-Only)
+# ---------------------------------------------------------------------------
+
+from fastapi.responses import HTMLResponse
+import app.database as database
+from app.dashboard import render_dashboard_html
+from app.persona import PERSONA
+
+
+@app.get("/", response_class=HTMLResponse, tags=["dashboard"], summary="NEXUS Live Demo Dashboard")
+@app.get("/dashboard", response_class=HTMLResponse, tags=["dashboard"], summary="NEXUS Live Demo Dashboard")
+def get_dashboard(agentId: str = "nexus-001"):
+    """
+    Serve the standalone, live-updating interactive demo dashboard.
+    Renders equal-weight published vs rejected editorial views, persona stance,
+    and interactive cycle triggering.
+    """
+    html_content = render_dashboard_html(initial_agent_id=agentId)
+    return HTMLResponse(content=html_content, status_code=200)
+
+
+@app.get(
+    "/api/agent/dashboard-data",
+    tags=["dashboard"],
+    summary="Fetch full dashboard telemetry, published posts, and rejected decisions",
+)
+def get_dashboard_data(agentId: str = Query(default="nexus-001", description="Agent ID to fetch data for")):
+    """
+    Read-only aggregated data endpoint for the demo dashboard.
+    Returns agent status, persona rules, published posts, rejected topics with reasons,
+    and recently seen candidate streams.
+    """
+    scheduler_status = get_scheduler_status()
+    published_posts = database.get_posts_by_agent(agentId, decision="PUBLISH")
+    rejected_posts = database.get_posts_by_agent(agentId, decision="REJECT")
+    seen_topics = database.get_recent_topics(limit=30)
+
+    return {
+        "agent_id": agentId,
+        "scheduler": scheduler_status,
+        "persona": {
+            "name": PERSONA.name,
+            "role": PERSONA.role,
+            "niche": PERSONA.niche,
+            "voice": PERSONA.voice,
+            "standing_opinions": PERSONA.standing_opinions,
+            "hard_rules": PERSONA.hard_rules,
+        },
+        "published_posts": published_posts,
+        "rejected_posts": rejected_posts,
+        "seen_topics": seen_topics,
+    }
+
+
