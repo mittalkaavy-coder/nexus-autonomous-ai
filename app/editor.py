@@ -295,57 +295,67 @@ Return ONLY a JSON object — no preamble, no explanation, no markdown fences. E
 # ---------------------------------------------------------------------------
 
 _discovered_working_model: Optional[str] = None
+_cached_models_list: Optional[list[str]] = None
 
 
 def _get_working_models(client: Any) -> list[str]:
     global _discovered_working_model
-    if _discovered_working_model:
-        return [_discovered_working_model]
+    global _cached_models_list
 
-    # Static fallback list — ordered by reliability on free-tier keys.
-    # gemini-flash-latest and gemini-2.0-flash are confirmed to work;
-    # others are kept as deep fallbacks only.
-    static_candidates = [
-        settings.LLM_MODEL,
-        "gemini-flash-latest",
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-pro-latest",
-        "gemini-pro",
-    ]
+    if _cached_models_list is None:
+        # Static fallback list — ordered by reliability on free-tier keys.
+        # gemini-flash-latest and gemini-2.0-flash are confirmed to work;
+        # others are kept as deep fallbacks only.
+        static_candidates = [
+            settings.LLM_MODEL,
+            "gemini-flash-latest",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-1.5-flash-latest",
+            "gemini-1.5-pro-latest",
+            "gemini-pro",
+        ]
 
-    # Suffixes that indicate a non-text model (TTS, audio, image, robotics, live).
-    # These either only accept AUDIO output or are otherwise useless for scoring.
-    _NON_TEXT_SUFFIXES = (
-        "-tts", "-audio", "-image", "-robotics", "-live",
-        "computer-use", "native-audio", "translate",
-    )
+        # Suffixes that indicate a non-text model (TTS, audio, image, robotics, live).
+        # These either only accept AUDIO output or are otherwise useless for scoring.
+        _NON_TEXT_SUFFIXES = (
+            "-tts", "-audio", "-image", "-robotics", "-live",
+            "computer-use", "native-audio", "translate",
+        )
 
-    try:
-        listed = []
-        for m in client.models.list():
-            m_name = getattr(m, "name", "")
-            if m_name.startswith("models/"):
-                m_name = m_name[7:]
-            name_lower = m_name.lower()
-            if (
-                "gemini" in name_lower
-                and "embed" not in name_lower
-                and not any(sfx in name_lower for sfx in _NON_TEXT_SUFFIXES)
-            ):
-                listed.append(m_name)
-        if listed:
-            logger.info("[editor] Discovered text-capable models from API: %s", listed)
-            # Prefer gemini-flash-latest early — it works reliably on free-tier keys
-            priority = [m for m in listed if "flash-latest" in m or "flash-lite-latest" in m]
-            rest = [m for m in listed if m not in priority]
-            static_candidates = priority + rest + static_candidates
-    except Exception as exc:
-        logger.warning("[editor] client.models.list() query failed: %s", exc)
+        try:
+            listed = []
+            for m in client.models.list():
+                m_name = getattr(m, "name", "")
+                if m_name.startswith("models/"):
+                    m_name = m_name[7:]
+                name_lower = m_name.lower()
+                if (
+                    "gemini" in name_lower
+                    and "embed" not in name_lower
+                    and not any(sfx in name_lower for sfx in _NON_TEXT_SUFFIXES)
+                ):
+                    listed.append(m_name)
+            if listed:
+                logger.info("[editor] Discovered text-capable models from API: %s", listed)
+                # Prefer gemini-flash-latest early — it works reliably on free-tier keys
+                priority = [m for m in listed if "flash-latest" in m or "flash-lite-latest" in m]
+                rest = [m for m in listed if m not in priority]
+                static_candidates = priority + rest + static_candidates
+        except Exception as exc:
+            logger.warning("[editor] client.models.list() query failed: %s", exc)
 
-    seen: set[str] = set()
-    return [m for m in static_candidates if m and not (m in seen or seen.add(m))]
+        seen: set[str] = set()
+        _cached_models_list = [m for m in static_candidates if m and not (m in seen or seen.add(m))]
+
+    models = list(_cached_models_list)
+    if _discovered_working_model and _discovered_working_model in models:
+        models.remove(_discovered_working_model)
+        models.insert(0, _discovered_working_model)
+    elif _discovered_working_model:
+        models.insert(0, _discovered_working_model)
+        
+    return models
 
 
 def _call_llm(prompt: str) -> str:

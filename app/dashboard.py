@@ -71,15 +71,33 @@ def render_dashboard_html(initial_agent_id: str = "nexus-001") -> str:
     body {{
       background: var(--bg-base);
       background-image: 
-        radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
-        radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.08) 0px, transparent 50%),
-        radial-gradient(at 100% 0%, rgba(244, 63, 94, 0.08) 0px, transparent 50%);
+        radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.25) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.15) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(244, 63, 94, 0.15) 0px, transparent 50%);
+      background-size: 200% 200%;
+      animation: gradientMove 15s ease infinite;
       background-attachment: fixed;
       color: var(--text-primary);
       font-family: var(--font-sans);
       min-height: 100vh;
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
+    }}
+
+    @keyframes gradientMove {{
+      0% {{ background-position: 0% 50%; }}
+      50% {{ background-position: 100% 50%; }}
+      100% {{ background-position: 0% 50%; }}
+    }}
+
+    @keyframes fadeUp {{
+      from {{ opacity: 0; transform: translateY(20px); }}
+      to {{ opacity: 1; transform: translateY(0); }}
+    }}
+
+    .animate-fade-up {{
+      animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      opacity: 0;
     }}
 
     /* Top Navigation */
@@ -125,13 +143,15 @@ def render_dashboard_html(initial_agent_id: str = "nexus-001") -> str:
     }}
 
     .brand-title {{
-      font-size: 1.25rem;
-      font-weight: 700;
+      font-size: 1.45rem;
+      font-weight: 800;
       letter-spacing: -0.02em;
-      color: #ffffff;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.6rem;
     }}
 
     .brand-subtitle {{
@@ -238,13 +258,22 @@ def render_dashboard_html(initial_agent_id: str = "nexus-001") -> str:
 
     .telemetry-card {{
       background: var(--bg-card);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--border-subtle);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: var(--radius-md);
-      padding: 1rem 1.25rem;
+      padding: 1.15rem 1.35rem;
       display: flex;
       flex-direction: column;
       gap: 0.35rem;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }}
+
+    .telemetry-card:hover {{
+      transform: translateY(-2px);
+      box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.35);
+      border-color: rgba(255, 255, 255, 0.15);
     }}
 
     .telemetry-label {{
@@ -270,13 +299,15 @@ def render_dashboard_html(initial_agent_id: str = "nexus-001") -> str:
     /* Persona Stance Banner */
     .persona-card {{
       background: var(--bg-card);
-      backdrop-filter: blur(12px);
-      border: 1px solid var(--border-subtle);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: var(--radius-md);
-      padding: 1.25rem 1.5rem;
+      padding: 1.5rem;
       display: flex;
       flex-direction: column;
-      gap: 0.85rem;
+      gap: 1rem;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25);
     }}
 
     .persona-header {{
@@ -403,20 +434,23 @@ def render_dashboard_html(initial_agent_id: str = "nexus-001") -> str:
     /* Decision Cards */
     .decision-card {{
       background: var(--bg-card);
-      backdrop-filter: blur(12px);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
       border-radius: var(--radius-md);
-      padding: 1.25rem;
+      padding: 1.35rem;
       display: flex;
       flex-direction: column;
       gap: 0.85rem;
-      transition: all 0.15s ease-in-out;
-      border: 1px solid var(--border-subtle);
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
     }}
 
     .decision-card:hover {{
       background: var(--bg-card-hover);
-      border-color: rgba(255, 255, 255, 0.16);
-      transform: translateY(-2px);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-6px) scale(1.01);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
     }}
 
     .decision-card.pub-card {{
@@ -944,7 +978,7 @@ def render_dashboard_html(initial_agent_id: str = "nexus-001") -> str:
           const sources = post.sources || [];
           
           return `
-            <article class="decision-card pub-card">
+            <article class="decision-card pub-card animate-fade-up">
               <div class="card-top">
                 <div class="card-badges">
                   <span class="badge badge-publish">PUBLISH</span>
@@ -1004,7 +1038,7 @@ def render_dashboard_html(initial_agent_id: str = "nexus-001") -> str:
           const sources = rej.sources || [];
 
           return `
-            <article class="decision-card rej-card">
+            <article class="decision-card rej-card animate-fade-up">
               <div class="card-top">
                 <div class="card-badges">
                   <span class="badge badge-reject">REJECTED</span>
@@ -1063,7 +1097,7 @@ def render_dashboard_html(initial_agent_id: str = "nexus-001") -> str:
         `;
       }} else {{
         seenContainer.innerHTML = seen.slice(0, 12).map(t => `
-          <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.65rem 0.85rem; display: flex; flex-direction: column; gap: 0.25rem;">
+          <div class="animate-fade-up" style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.65rem 0.85rem; display: flex; flex-direction: column; gap: 0.25rem;">
             <div style="font-size: 0.825rem; font-weight: 600; color: #ffffff; line-height: 1.3;">${{t.title}}</div>
             <div style="font-size: 0.7rem; color: var(--text-muted);">${{formatDate(t.discovered_at)}}</div>
             <a href="${{t.source_url}}" target="_blank" rel="noopener noreferrer" class="source-link" style="font-size: 0.7rem;">🔗 ${{t.source_url}}</a>
