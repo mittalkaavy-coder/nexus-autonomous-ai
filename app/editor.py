@@ -748,9 +748,7 @@ def evaluate_batch(
     """
     Evaluate a batch of candidate topics through scoring and decision.
     Skipped/failed items (score_topic returning None) are omitted from the output.
-
-    Note: Persistence to SQLite database happens in Phase 10.
-    # TODO: Phase 10 - Persist decisions (insert_post, insert_topic_seen)
+    Persistence to SQLite happens in pipeline.py, not here.
     """
     decisions: list[EditorialDecision] = []
     for c in candidates:

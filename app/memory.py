@@ -30,8 +30,6 @@ from app.config import settings
 from app.database import (
     get_recent_posts,
     get_recent_topics,
-    insert_post,
-    insert_topic_seen,
 )
 
 logger = logging.getLogger(__name__)

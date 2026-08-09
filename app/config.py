@@ -11,10 +11,46 @@ load_dotenv()
 
 
 class Settings:
-    """Application-wide configuration, populated from environment variables."""
+    """
+    Application-wide configuration, populated from environment variables.
+
+    All attributes are @property so they are read from the environment at
+    access time (not frozen at import time). Direct assignment is supported
+    via an internal _overrides dict — used by tests to redirect DATABASE_PATH
+    to a temporary file without polluting the real environment.
+    """
+
+    def __init__(self) -> None:
+        # Mutable override store — allows ``settings.DATABASE_PATH = "/tmp/x.db"``
+        # in tests without modifying os.environ or needing unittest.mock.patch.
+        object.__setattr__(self, "_overrides", {})
+
+    def __setattr__(self, name: str, value: object) -> None:
+        self._overrides[name] = value
+
+    def __getattr__(self, name: str) -> object:  # pragma: no cover
+        # Fallback — only called for names not defined as @property on the class.
+        overrides = object.__getattribute__(self, "_overrides")
+        if name in overrides:
+            return overrides[name]
+        raise AttributeError(f"'Settings' object has no attribute {name!r}")
+
+    def _get(self, key: str, default: str) -> str:
+        """Read from overrides first, then os.environ, then default."""
+        overrides: dict = object.__getattribute__(self, "_overrides")
+        if key in overrides:
+            return str(overrides[key])
+        return os.getenv(key, default)
+
+    # ------------------------------------------------------------------ #
+    # LLM
+    # ------------------------------------------------------------------ #
 
     @property
     def LLM_API_KEY(self) -> str:
+        overrides: dict = object.__getattribute__(self, "_overrides")
+        if "LLM_API_KEY" in overrides:
+            return str(overrides["LLM_API_KEY"])
         return (
             os.getenv("LLM_API_KEY")
             or os.getenv("GEMINI_API_KEY")
@@ -24,26 +60,50 @@ class Settings:
 
     @property
     def LLM_MODEL(self) -> str:
-        raw = os.getenv("LLM_MODEL", "gemini-2.0-flash").strip()
+        raw = self._get("LLM_MODEL", "gemini-2.0-flash").strip()
         if not raw or "2.5" in raw:
             return "gemini-2.0-flash"
         return raw
 
+    # ------------------------------------------------------------------ #
     # Storage
-    DATABASE_PATH: str = os.getenv("DATABASE_PATH", "./data/nexus.db")
+    # ------------------------------------------------------------------ #
 
+    @property
+    def DATABASE_PATH(self) -> str:
+        return self._get("DATABASE_PATH", "./data/nexus.db")
+
+    # ------------------------------------------------------------------ #
     # Scheduler
-    DISCOVERY_INTERVAL_SECONDS: int = int(
-        os.getenv("DISCOVERY_INTERVAL_SECONDS", "90")
-    )
+    # ------------------------------------------------------------------ #
 
+    @property
+    def DISCOVERY_INTERVAL_SECONDS(self) -> int:
+        return int(self._get("DISCOVERY_INTERVAL_SECONDS", "90"))
+
+    # ------------------------------------------------------------------ #
     # Editorial thresholds (PRD §5.2)
-    PUBLISH_THRESHOLD: float = float(os.getenv("PUBLISH_THRESHOLD", "70.0"))
-    EVIDENCE_FLOOR: float = float(os.getenv("EVIDENCE_FLOOR", "40.0"))
+    # ------------------------------------------------------------------ #
 
+    @property
+    def PUBLISH_THRESHOLD(self) -> float:
+        return float(self._get("PUBLISH_THRESHOLD", "70.0"))
+
+    @property
+    def EVIDENCE_FLOOR(self) -> float:
+        return float(self._get("EVIDENCE_FLOOR", "40.0"))
+
+    # ------------------------------------------------------------------ #
     # Memory and Duplicate Detection (PRD §5.3)
-    SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.70"))
-    MEMORY_WINDOW_SIZE: int = int(os.getenv("MEMORY_WINDOW_SIZE", "50"))
+    # ------------------------------------------------------------------ #
+
+    @property
+    def SIMILARITY_THRESHOLD(self) -> float:
+        return float(self._get("SIMILARITY_THRESHOLD", "0.70"))
+
+    @property
+    def MEMORY_WINDOW_SIZE(self) -> int:
+        return int(self._get("MEMORY_WINDOW_SIZE", "50"))
 
     def __repr__(self) -> str:  # pragma: no cover
         key_preview = f"{self.LLM_API_KEY[:6]}…" if self.LLM_API_KEY else "<not set>"

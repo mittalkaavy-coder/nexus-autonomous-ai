@@ -10,7 +10,7 @@ No over-modelling — avoid adding fields until a phase actually needs them.
 """
 
 from typing import Any, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
@@ -27,10 +27,10 @@ class PostRecord(BaseModel):
     summary: str
     created_at: str            # ISO 8601 UTC
     generated_text: Optional[str] = None
-    sources: List[str] = []
+    sources: List[str] = Field(default_factory=list)
     editorial_score: float
     decision: str              # 'PUBLISH' or 'REJECT'
-    rationale: dict[str, Any] = {}
+    rationale: dict[str, Any] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

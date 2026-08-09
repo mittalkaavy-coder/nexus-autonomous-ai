@@ -8,9 +8,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
+import app.database as database
 from app.database import init_db
 import app.agent as agent_module
+from app.dashboard import render_dashboard_html
 from app.discovery import discover_topics
 from app.models import (
     AgentInitRequest,
@@ -18,6 +21,7 @@ from app.models import (
     FeedPost,
     FeedResponse,
 )
+from app.persona import PERSONA
 from app.scheduler import (
     get_scheduler_status,
     start_scheduler,
@@ -216,10 +220,7 @@ def debug_discover(
 # Demo Dashboard & Telemetry Data (Read-Only)
 # ---------------------------------------------------------------------------
 
-from fastapi.responses import HTMLResponse
-import app.database as database
-from app.dashboard import render_dashboard_html
-from app.persona import PERSONA
+
 
 
 @app.get("/", response_class=HTMLResponse, tags=["dashboard"], summary="NEXUS Live Demo Dashboard")
