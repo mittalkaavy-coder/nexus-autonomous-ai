@@ -37,13 +37,13 @@ Crucially, **rejections are first-class citizens**: topics failing editorial sta
 
 ## 3. Key Features
 
-- ⚙️ **Autonomous Background Lifecycle**: Self-running pipeline using APScheduler (`AsyncIOScheduler`) triggered by a single idempotent `POST /api/agent/init` call — no recurring human intervention required.
+- ⚙️ **Autonomous Background Lifecycle**: Self-running pipeline using APScheduler (`BackgroundScheduler`) triggered by a single idempotent `POST /api/agent/init` call — no recurring human intervention required.
 - ⚖️ **5-Factor Weighted Editorial Rubric**:
-  - **Relevance to Niche (30%)**: AI agent infrastructure, orchestration, MCP, RAG, MLOps.
-  - **Novelty (25%)**: New technical capability vs. recycled meta-commentary.
-  - **Technical Impact (20%)**: Concrete engineering value for developers.
-  - **Evidence Quality (15%)**: Verified repositories, papers, or code vs. secondary press releases.
-  - **Timeliness (10%)**: Fresh developments with immediate significance.
+  - **Technical Impact (25%)**: Concrete engineering value for developers.
+  - **Relevance to Niche (20%)**: AI agent infrastructure, orchestration, MCP, RAG, MLOps.
+  - **Evidence Quality (20%)**: Verified repositories, papers, or code vs. secondary press releases.
+  - **Timeliness (20%)**: Fresh developments with immediate significance.
+  - **Novelty (15%)**: New technical capability vs. recycled meta-commentary.
 - 🛡️ **Strict Evidence Floor Rule**: If Evidence Quality < 40/100, the topic is **automatically REJECTED** regardless of composite score, producing an auditable floor-violation reason.
 - 🧠 **Lightweight Memory & Deduplication**: Fast TF-IDF cosine similarity memory against historical topics and published posts — avoiding vector DB infrastructure bloat while maintaining stance continuity over time.
 - ✍️ **Hallucination-Free Content Synthesis**: Post commentary is strictly grounded in discovered primary sources, speaking in NEXUS's concise, evidence-driven, skeptical persona voice.
@@ -76,7 +76,7 @@ flowchart TD
 
     subgraph StageB ["4. Stage B: Memory & Deduplication"]
         J --> K[TF-IDF Cosine Similarity Check]
-        K --> L{Similarity > 0.65?}
+        K --> L{Similarity > 0.70?}
         L -- Yes & No New Info --> M[REJECT: Duplicate Topic]
         L -- No --> N[Candidate Approved]
     end
@@ -333,7 +333,7 @@ curl -X GET "https://nexus-autonomous-ai-xwsh.onrender.com/api/agent/dashboard-d
 
 ## 8. Environment Variables
 
-All configuration settings are loaded via `pydantic-settings` from `.env` or system environment variables:
+All configuration settings are loaded via `python-dotenv` from `.env` or system environment variables:
 
 | Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -343,8 +343,8 @@ All configuration settings are loaded via `pydantic-settings` from `.env` or sys
 | `PORT` | Integer | `8000` | Server listening port. |
 | `PUBLISH_THRESHOLD` | Float | `70.0` | Minimum composite score required to pass Stage A publication. |
 | `EVIDENCE_FLOOR` | Float | `40.0` | Non-negotiable minimum Evidence Quality score; below this forces REJECT. |
-| `SIMILARITY_THRESHOLD` | Float | `0.65` | TF-IDF cosine similarity threshold for duplicate detection. |
-| `DISCOVERY_INTERVAL_SECONDS` | Integer | `300` | Autonomous background polling interval in seconds (5 minutes). |
+| `SIMILARITY_THRESHOLD` | Float | `0.70` | TF-IDF cosine similarity threshold for duplicate detection. |
+| `DISCOVERY_INTERVAL_SECONDS` | Integer | `90` | Autonomous background polling interval in seconds (default 90s; set to 300s on Render). |
 | `DISCOVERY_FEEDS` | String | *(Comma-separated list)* | Default RSS/Atom feeds for continuous candidate discovery. |
 
 ---
