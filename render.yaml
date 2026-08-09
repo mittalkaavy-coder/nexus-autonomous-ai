@@ -13,6 +13,8 @@ services:
       - key: LLM_API_KEY
         sync: false
       - key: LLM_MODEL
-        value: gemini-2.5-flash
+        value: gemini-2.0-flash
       - key: DISCOVERY_INTERVAL_SECONDS
         value: "300"
+      - key: DATABASE_PATH
+        value: ./data/nexus.db
